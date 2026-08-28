@@ -124,16 +124,13 @@ class ConstraintCheckResultRow(Base):
     feasible = Column(Boolean, nullable=False)
     violations = Column(JSONB, nullable=False, default=list)   # [{code, message, severity}, ...]
     fairness_note = Column(Text, nullable=True)
-<<<<<<< HEAD
+    
     # Groq-generated plain-language rollup of `violations`, when present —
     # see app/agents/constraint_agent.py and models/schemas.py's matching
     # field. NULL whenever Groq wasn't configured or there were no
     # violations to explain.
     llm_explanation = Column(Text, nullable=True)
-    checked_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-=======
     checked_at = Column(TZDateTime, nullable=False, default=_utcnow)
->>>>>>> ef1caa9 (frontend)
 
 
 class CommanderDecisionRow(Base):
@@ -176,9 +173,5 @@ class Event(Base):
     event_type = Column(String, nullable=False)     # the _log_decision message, e.g. "mission_proposed"
     entity_type = Column(String, nullable=True)      # "report" | "cluster" | "mission" | ...
     entity_id = Column(String, nullable=True)
-
-    context = Column(JSONB, nullable=False, default=dict)   # remaining _log_decision kwargs / sync payload
-    level = Column(String, nullable=True)            # log level name, agent_log rows only
-
+    payload = Column(JSONB, nullable=False, default=dict)
     occurred_at = Column(TZDateTime, nullable=False, default=_utcnow)
-    recorded_at = Column(TZDateTime, nullable=False, default=_utcnow)
