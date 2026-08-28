@@ -1,0 +1,18 @@
+{
+  "nodes": {
+    "depot_north": {"lat": 37.7849, "lon": -122.4194},
+    "junction_central": {"lat": 37.7790, "lon": -122.4139},
+    "junction_east": {"lat": 37.7768, "lon": -122.4079},
+    "residential_south": {"lat": 37.7700, "lon": -122.4130},
+    "industrial_west": {"lat": 37.7825, "lon": -122.4260},
+    "depot_south": {"lat": 37.7660, "lon": -122.4190}
+  },
+  "edges": [
+    {"id": "R1", "from": "depot_north", "to": "junction_central", "km": 2.1},
+    {"id": "R2", "from": "junction_central", "to": "junction_east", "km": 1.8},
+    {"id": "R3", "from": "junction_central", "to": "residential_south", "km": 2.5},
+    {"id": "R4", "from": "residential_south", "to": "depot_south", "km": 1.4},
+    {"id": "R5", "from": "depot_north", "to": "industrial_west", "km": 2.0},
+    {"id": "R6", "from": "junction_east", "to": "depot_south", "km": 3.2}
+  ]
+}

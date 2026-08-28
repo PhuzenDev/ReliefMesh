@@ -1,0 +1,10 @@
+[
+  {
+    "location_id": "depot_north",
+    "items": {"medkits": 12, "water_liters": 400, "ropes": 6, "tents": 10, "blankets": 40, "food_kits": 25}
+  },
+  {
+    "location_id": "depot_south",
+    "items": {"medkits": 4, "water_liters": 150, "ropes": 2, "tents": 6, "blankets": 20, "food_kits": 15}
+  }
+]

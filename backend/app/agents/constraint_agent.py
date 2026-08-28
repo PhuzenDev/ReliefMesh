@@ -10,7 +10,7 @@ log) always knows *why*.
 """
 
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from app.agents.base_agent import BaseAgent
@@ -47,13 +47,18 @@ class ConstraintAgent(BaseAgent):
         results: List[ConstraintCheckResult] = []
 
         stock_available = self._total_stock(inventories)
+        # Running per-item total across every proposal checked so far this
+        # cycle (in priority order, same order the allocator draws in) —
+        # a later, lower-priority proposal can push the cumulative draw
+        # over stock even if no single proposal looks unreasonable alone.
+        drawn_so_far: Dict[str, int] = defaultdict(int)
         zone_counts = self._zone_distribution(proposals, clusters_by_id)
 
         for proposal in proposals:
             violations: List[ConstraintViolation] = []
             cluster = clusters_by_id.get(proposal.cluster_id)
 
-            self._check_capacity(proposal, crews_by_id, stock_available, violations)
+            self._check_capacity(proposal, crews_by_id, stock_available, drawn_so_far, violations)
             self._check_access(proposal, violations)
             self._check_medical_priority(proposal, cluster, proposals, clusters_by_id, violations)
 
@@ -84,6 +89,7 @@ class ConstraintAgent(BaseAgent):
         proposal: MissionProposal,
         crews_by_id: Dict[str, Crew],
         stock_available: Dict[str, int],
+        drawn_so_far: Dict[str, int],
         violations: List[ConstraintViolation],
     ) -> None:
         if proposal.crew_id is None:
@@ -102,13 +108,23 @@ class ConstraintAgent(BaseAgent):
                 severity="block",
             ))
 
+        # Bug fix: this used to compare total stock against zero, which
+        # can never go negative and so never fired. What actually matters
+        # is whether this proposal's draw, stacked on top of every other
+        # proposal's draw so far this cycle, exceeds total available stock.
         for item, qty in proposal.supplies.items():
-            if stock_available.get(item, 0) < 0:
+            available = stock_available.get(item, 0)
+            already_drawn = drawn_so_far.get(item, 0)
+            if already_drawn + qty > available:
                 violations.append(ConstraintViolation(
                     code="SUPPLY_OVERDRAWN",
-                    message=f"Requested {qty} {item} exceeds remaining stock.",
+                    message=(
+                        f"Requested {qty} {item} brings cumulative draw this cycle to "
+                        f"{already_drawn + qty}, exceeding available stock of {available}."
+                    ),
                     severity="block",
                 ))
+            drawn_so_far[item] = already_drawn + qty
 
     def _check_access(self, proposal: MissionProposal, violations: List[ConstraintViolation]) -> None:
         # Route feasibility is re-checked here (not trusted from planning
@@ -155,7 +171,7 @@ class ConstraintAgent(BaseAgent):
         cluster: EvidenceCluster,
         zone_counts: Dict[str, int],
         violations: List[ConstraintViolation],
-    ) -> str:
+    ) -> Optional[str]:
         if cluster is None or proposal.crew_id is None:
             return None
         zone_key = self._zone_key(cluster)

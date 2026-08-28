@@ -153,6 +153,11 @@ class Orchestrator:
 
     # -- view helpers -----------------------------------------------------
 
+    def commander_view(self) -> List[dict]:
+        """Public read of the current commander-facing state without
+        forcing a replan — for GET-style API/WS reads between cycles."""
+        return self._commander_view()
+
     def _commander_view(self) -> List[dict]:
         cards = []
         for mission_id, proposal in self._proposals.items():
