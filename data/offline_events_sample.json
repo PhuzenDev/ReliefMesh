@@ -1,0 +1,20 @@
+[
+  {
+    "client_event_id": "field-unit-4-evt-001",
+    "event_type": "field_note_added",
+    "entity_type": "mission",
+    "entity_id": "REPLACE_WITH_A_REAL_mission_id_FROM_GET_/missions",
+    "payload": {"note": "Route blocked by debris, taking detour via R6"},
+    "actor": "field_team:unit_4",
+    "occurred_at": "2026-08-28T09:45:00Z"
+  },
+  {
+    "client_event_id": "field-unit-4-evt-002",
+    "event_type": "supply_drawn",
+    "entity_type": "mission",
+    "entity_id": "REPLACE_WITH_A_REAL_mission_id_FROM_GET_/missions",
+    "payload": {"item": "medkits", "qty": 1},
+    "actor": "field_team:unit_4",
+    "occurred_at": "2026-08-28T09:47:00Z"
+  }
+]

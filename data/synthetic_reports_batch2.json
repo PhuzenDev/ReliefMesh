@@ -1,0 +1,39 @@
+[
+  {
+    "source": "sms",
+    "lat": 37.7773,
+    "lon": -122.4109,
+    "text": "Same collapse as before, more neighbors gathering, still needs medics",
+    "need_type": "medical",
+    "people_affected": 2
+  },
+  {
+    "source": "call",
+    "lat": 37.7899,
+    "lon": -122.4301,
+    "text": "Strong gas odor confirmed, residents evacuating themselves, need backup",
+    "need_type": "evacuation",
+    "people_affected": 15
+  },
+  {
+    "source": "field_team",
+    "source_reliability_hint": 0.92,
+    "lat": 37.7695,
+    "lon": -122.4125,
+    "text": "New shelter overflow site needed, south gym near capacity",
+    "need_type": "shelter",
+    "people_affected": 20
+  },
+  {
+    "source": "sms",
+    "lat": 37.7658,
+    "lon": -122.4168,
+    "text": "Running low on formula and clean water for infants at the south depot line"
+  },
+  {
+    "source": "call",
+    "lat": 37.7830,
+    "lon": -122.4255,
+    "text": "Aftershock felt near the warehouse rescue site, crew requesting status check"
+  }
+]

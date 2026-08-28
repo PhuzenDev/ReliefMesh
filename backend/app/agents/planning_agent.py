@@ -11,9 +11,20 @@ Every proposal carries `assumptions` — plain-language notes on what the
 plan is trusting (e.g. "assumed route X open", "assumed cluster
 reliability sufficient") so the constraint agent and commander both see
 *why* a mission was proposed, not just *what*.
+
+The deterministic assumptions above are always generated and are the
+source of truth. If Groq is configured, one extra assumption is
+appended: a short natural-language rationale synthesizing cluster
+severity, crew fit, and ETA into a sentence a commander can read at a
+glance. This is a narrative add-on only — it never changes the crew
+assignment, supply allocation, or priority score, all of which are
+decided by `optimizer.allocator` and `_priority_score` before the LLM
+is ever called. If Groq isn't configured or the call fails, proposals
+are returned with exactly the deterministic assumptions, unchanged.
 """
 
-from typing import Dict, List
+import asyncio
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from app.agents.base_agent import BaseAgent
@@ -97,7 +108,51 @@ class PlanningAgent(BaseAgent):
                 priority=round(proposal.priority_score, 3),
             )
 
+        await self._add_llm_rationales(proposals, {c.cluster_id: c for c in prioritized})
         return proposals
+
+    # -- LLM rationale (Groq) --------------------------------------------
+
+    async def _add_llm_rationales(
+        self, proposals: List[MissionProposal], clusters_by_id: Dict[UUID, EvidenceCluster]
+    ) -> None:
+        """Appends one narrative rationale sentence to each assigned
+        proposal's assumptions list, mutating in place. Unassigned
+        proposals already carry a self-explanatory message and aren't
+        worth the extra call. No-ops entirely if Groq isn't configured."""
+        if not self.llm.is_configured:
+            return
+
+        assigned = [p for p in proposals if p.crew_id is not None]
+        if not assigned:
+            return
+
+        rationales = await asyncio.gather(
+            *(self._rationale_for(p, clusters_by_id.get(p.cluster_id)) for p in assigned)
+        )
+        for proposal, rationale in zip(assigned, rationales):
+            if rationale:
+                proposal.assumptions.append(f"LLM rationale: {rationale}")
+
+    async def _rationale_for(self, proposal: MissionProposal, cluster: EvidenceCluster) -> Optional[str]:
+        if cluster is None:
+            return None
+        system_prompt = (
+            "You write one concise sentence (max 30 words) for a disaster-response "
+            "commander explaining why a mission was proposed. Ground it only in the "
+            "facts given — do not invent details. Plain text, no markdown, no quotes."
+        )
+        user_prompt = (
+            f"need_type={cluster.need_type.value}, "
+            f"people_affected_estimate={cluster.people_affected_estimate}, "
+            f"reliability_score={cluster.reliability_score}, "
+            f"confidence={cluster.confidence}, "
+            f"contradictory={cluster.contradictory}, "
+            f"priority_score={proposal.priority_score}, "
+            f"eta_minutes={proposal.eta_minutes}, "
+            f"supplies={proposal.supplies}"
+        )
+        return await self._think(system_prompt, user_prompt, temperature=0.3, max_tokens=80)
 
     # -- internals ------------------------------------------------------
 

@@ -111,6 +111,11 @@ class ConstraintCheckResultRow(Base):
     feasible = Column(Boolean, nullable=False)
     violations = Column(JSONB, nullable=False, default=list)   # [{code, message, severity}, ...]
     fairness_note = Column(Text, nullable=True)
+    # Groq-generated plain-language rollup of `violations`, when present —
+    # see app/agents/constraint_agent.py and models/schemas.py's matching
+    # field. NULL whenever Groq wasn't configured or there were no
+    # violations to explain.
+    llm_explanation = Column(Text, nullable=True)
     checked_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 

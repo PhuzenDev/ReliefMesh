@@ -1,0 +1,51 @@
+# Local Postgres for ReliefMesh. Matches the default DATABASE_URL baked
+# into backend/app/db/database.py, backend/app/db/audit.py, and
+# backend/migrations/env.py:
+#   postgresql+asyncpg://reliefmesh:reliefmesh@localhost:5432/reliefmesh
+#
+# Usage:
+#   docker compose up -d          # start Postgres (+ Adminer UI) in the background
+#   docker compose down           # stop
+#   docker compose down -v        # stop AND wipe the data volume
+#
+# Then, from backend/:
+#   alembic upgrade head          # create tables
+#   uvicorn app.main:app --reload # run the API
+#
+# Adminer (a lightweight DB browser) is included so you can eyeball the
+# `reports` / `evidence_clusters` / `mission_proposals` /
+# `constraint_check_results` / `events` tables without installing psql.
+# Open http://localhost:8081, System=PostgreSQL, Server=postgres,
+# Username=reliefmesh, Password=reliefmesh, Database=reliefmesh.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: reliefmesh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reliefmesh
+      POSTGRES_PASSWORD: reliefmesh
+      POSTGRES_DB: reliefmesh
+    ports:
+      - "5432:5432"
+    volumes:
+      - reliefmesh_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reliefmesh -d reliefmesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adminer:
+    image: adminer:latest
+    container_name: reliefmesh-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  reliefmesh_pgdata:

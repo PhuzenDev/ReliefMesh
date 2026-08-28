@@ -19,15 +19,28 @@ interface):
   3. Reliability = weighted blend of source trust + corroboration count.
   4. Confidence = how tight the cluster is (fewer distinct need_types /
      lower variance in people_affected = higher confidence).
+
+Before clustering, an optional Groq-backed step (`_enrich_with_llm`)
+reads free-text reports (SMS/call transcripts land in `RawReport.text`
+with need_type=UNKNOWN) and infers a structured need_type / headcount
+so they aren't dropped into the lowest-priority bucket just because
+nobody typed a category. This only ever *fills gaps* — a report that
+already has a structured need_type from its source is never overridden
+by the LLM, and if Groq isn't configured or a call fails the report is
+left as UNKNOWN and flows through the existing deterministic path
+unchanged.
 """
 
+import asyncio
 import math
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from app.agents.base_agent import BaseAgent
 from app.models.schemas import EvidenceCluster, NeedType, RawReport, SourceType
+
+_VALID_NEED_TYPES = {n.value for n in NeedType}
 
 DISTANCE_THRESHOLD_KM = 0.6
 TIME_WINDOW_MIN = 45
@@ -75,6 +88,8 @@ class EvidenceAgent(BaseAgent):
         if not reports:
             return []
 
+        reports = await self._enrich_with_llm(reports)
+
         uf = _UnionFind(len(reports))
         for i in range(len(reports)):
             for j in range(i + 1, len(reports)):
@@ -101,6 +116,56 @@ class EvidenceAgent(BaseAgent):
                 contradictory=c.contradictory,
             )
         return clusters
+
+    # -- LLM enrichment (Groq) ------------------------------------------
+
+    async def _enrich_with_llm(self, reports: List[RawReport]) -> List[RawReport]:
+        """Fill in need_type/people_affected for UNKNOWN reports that have
+        free text, by asking Groq to read the text. Runs all candidates
+        concurrently since each call is independent and Groq is fast."""
+        if not self.llm.is_configured:
+            return reports
+
+        targets = [r for r in reports if r.need_type == NeedType.UNKNOWN and r.text]
+        if not targets:
+            return reports
+
+        inferred_results = await asyncio.gather(*(self._classify_report_text(r) for r in targets))
+
+        for report, inferred in zip(targets, inferred_results):
+            if not inferred:
+                continue
+
+            need = inferred.get("need_type")
+            if isinstance(need, str) and need in _VALID_NEED_TYPES:
+                report.need_type = NeedType(need)
+
+            people = inferred.get("people_affected_estimate")
+            if report.people_affected is None and isinstance(people, int) and people >= 0:
+                report.people_affected = people
+
+            self._log_decision(
+                "llm_report_enriched",
+                report_id=str(report.report_id),
+                inferred_need_type=report.need_type.value,
+                inferred_people_affected=report.people_affected,
+            )
+
+        return reports
+
+    async def _classify_report_text(self, report: RawReport) -> Optional[Dict]:
+        system_prompt = (
+            "You triage raw emergency reports for a disaster-response system. "
+            "Given a short free-text report, extract the most likely need type "
+            "and an approximate headcount. Be conservative: if the text doesn't "
+            "clearly support a category or number, say so. "
+            f"Respond ONLY with a JSON object with exactly these keys: "
+            f'"need_type" (one of {sorted(_VALID_NEED_TYPES)}), '
+            '"people_affected_estimate" (integer or null), '
+            '"confidence" (0-1 float). No other text.'
+        )
+        user_prompt = f"Report text: {report.text}"
+        return await self._think_json(system_prompt, user_prompt, temperature=0.0, max_tokens=200)
 
     # -- internals ----------------------------------------------------
 

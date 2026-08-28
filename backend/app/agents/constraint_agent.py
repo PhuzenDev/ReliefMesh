@@ -7,8 +7,18 @@ priority, and fairness. Never silently drops a mission — every
 proposal comes back with a feasible/infeasible verdict plus the
 specific violations, so the commander (or a human reviewing the audit
 log) always knows *why*.
+
+All four checks below are deterministic and remain the sole source of
+truth for `feasible` / `violations`. When a proposal has one or more
+violations and Groq is configured, an extra `llm_explanation` string is
+attached: one plain-language sentence rolling the violation codes/
+messages up into something a commander can read without parsing codes.
+The LLM never sees anything it could use to change the verdict — it's
+called after `feasible` and `violations` are already final, purely to
+phrase them.
 """
 
+import asyncio
 from collections import defaultdict
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -80,7 +90,37 @@ class ConstraintAgent(BaseAgent):
                 violation_codes=[v.code for v in violations],
             )
 
+        await self._add_llm_explanations(results)
         return results
+
+    # -- LLM explanation (Groq) --------------------------------------------
+
+    async def _add_llm_explanations(self, results: List[ConstraintCheckResult]) -> None:
+        """Mutates results in place, adding llm_explanation to any result
+        that has violations. No-ops entirely if Groq isn't configured."""
+        if not self.llm.is_configured:
+            return
+
+        with_violations = [r for r in results if r.violations]
+        if not with_violations:
+            return
+
+        explanations = await asyncio.gather(*(self._explain(r) for r in with_violations))
+        for result, explanation in zip(with_violations, explanations):
+            result.llm_explanation = explanation
+
+    async def _explain(self, result: ConstraintCheckResult) -> Optional[str]:
+        system_prompt = (
+            "You explain automated dispatch-constraint verdicts to a disaster-response "
+            "commander in one plain-language sentence (max 30 words). Summarize only the "
+            "violations given — do not soften a 'block' severity or invent new issues. "
+            "Plain text, no markdown, no quotes."
+        )
+        violation_lines = "; ".join(
+            f"[{v.severity}] {v.code}: {v.message}" for v in result.violations
+        )
+        user_prompt = f"feasible={result.feasible}. violations: {violation_lines}"
+        return await self._think(system_prompt, user_prompt, temperature=0.2, max_tokens=80)
 
     # -- individual checks ------------------------------------------------
 

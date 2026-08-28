@@ -163,6 +163,12 @@ class ConstraintCheckResult(BaseModel):
     feasible: bool
     violations: List[ConstraintViolation] = Field(default_factory=list)
     fairness_note: Optional[str] = None
+    # Optional Groq-generated plain-language summary of the violations
+    # above, for the commander UI. Purely narrative — the feasible flag
+    # and violations list are decided deterministically before this is
+    # ever populated, and it stays None whenever Groq isn't configured
+    # or a call fails.
+    llm_explanation: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -140,6 +140,7 @@ async def save_constraint_results(session: AsyncSession, results: Sequence[Const
             feasible=r.feasible,
             violations=[v.model_dump() for v in r.violations],
             fairness_note=r.fairness_note,
+            llm_explanation=r.llm_explanation,
         ))
     await session.commit()
 

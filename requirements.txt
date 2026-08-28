@@ -27,7 +27,13 @@ ortools>=9.9                   # CP-SAT solver for constrained mission allocatio
 
 # -- api / websocket layer -----------------------------------------------
 websockets>=12.0               # WS routes for live map/mission updates
-httpx>=0.27                    # async HTTP client, also used by tests for API calls
+httpx>=0.27                    # async HTTP client — also used by tests for API
+                                # calls AND by app/llm/groq_client.py to call Groq
+
+# -- LLM reasoning (Groq) ---------------------------------------------------
+# No extra package needed: app/llm/groq_client.py calls Groq's OpenAI-compatible
+# REST endpoint directly over httpx (already a dep above). Just set GROQ_API_KEY;
+# see backend/.env.example. python-dotenv above is what loads that .env file.
 
 # -- sim / synthetic data ---------------------------------------------------
 faker>=24.0                    # synthetic incident report generation for replay simulator
