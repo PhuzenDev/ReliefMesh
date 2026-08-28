@@ -1,197 +1,165 @@
 """
-Constraint Agent
-================
-Last automated gate before a MissionProposal reaches the commander.
-Checks four things called out in the brief: capacity, access, medical
-priority, and fairness. Never silently drops a mission — every
-proposal comes back with a feasible/infeasible verdict plus the
-specific violations, so the commander (or a human reviewing the audit
-log) always knows *why*.
+Orchestrator
+============
+The only class the API layer talks to. Wires evidence -> geo -> planning
+-> constraint into one pipeline, holds the in-memory pipeline state
+between cycles, and exposes the four things the demo script needs:
+
+  1. run_cycle()            — full pass: reports -> checked mission proposals
+  2. ingest_reports()       — add new/duplicate/contradicting reports, doesn't replan by itself
+  3. handle_commander_decision() — approve/modify/reject a mission
+  4. trigger_replan()       — road closes, crew drops out, or new evidence arrives
+  5. reconcile_offline_batch() — apply a batch of field reports queued while offline,
+                                  then replan once, not once-per-report
+
+State lives in memory here on purpose — the DB/audit-store layer
+(app/db/) should subscribe to the same `reliefmesh.agents` logger tree
+this module and every agent write to, rather than this class knowing
+about persistence directly.
 """
 
-from collections import defaultdict
-from typing import Dict, List
+import logging
+from typing import Dict, List, Optional
 from uuid import UUID
 
-from app.agents.base_agent import BaseAgent
+from app.agents.constraint_agent import ConstraintAgent
+from app.agents.evidence_agent import EvidenceAgent
 from app.agents.geo_agent import GeoAgent
+from app.agents.planning_agent import PlanningAgent
 from app.models.schemas import (
+    CommanderDecision,
     ConstraintCheckResult,
-    ConstraintViolation,
     Crew,
     EvidenceCluster,
     MissionProposal,
-    NeedType,
+    MissionStatus,
+    RawReport,
     SupplyInventory,
 )
 
-# A zone (bucketed by rounded lat/lon) shouldn't absorb more than this
-# share of missions in one planning cycle while other zones sit at zero.
-MAX_SHARE_PER_ZONE = 0.6
+logger = logging.getLogger("reliefmesh.orchestrator")
 
 
-class ConstraintAgent(BaseAgent):
-    name = "constraint_agent"
+class Orchestrator:
+    def __init__(self) -> None:
+        self.evidence_agent = EvidenceAgent()
+        self.geo_agent = GeoAgent()
+        self.planning_agent = PlanningAgent(self.geo_agent)
+        self.constraint_agent = ConstraintAgent(self.geo_agent)
 
-    def __init__(self, geo_agent: GeoAgent) -> None:
-        super().__init__()
-        self.geo_agent = geo_agent
+        # rolling pipeline state
+        self._reports: List[RawReport] = []
+        self._clusters: List[EvidenceCluster] = []
+        self._proposals: Dict[UUID, MissionProposal] = {}
+        self._checks: Dict[UUID, ConstraintCheckResult] = {}
+        self._crews: List[Crew] = []
+        self._inventories: List[SupplyInventory] = []
 
-    async def run(
-        self,
-        proposals: List[MissionProposal],
-        clusters_by_id: Dict[UUID, EvidenceCluster],
-        crews_by_id: Dict[str, Crew],
-        inventories: List[SupplyInventory],
-    ) -> List[ConstraintCheckResult]:
-        results: List[ConstraintCheckResult] = []
+    # -- setup -----------------------------------------------------------
 
-        stock_available = self._total_stock(inventories)
-        zone_counts = self._zone_distribution(proposals, clusters_by_id)
+    def register_crews(self, crews: List[Crew]) -> None:
+        self._crews = crews
 
-        for proposal in proposals:
-            violations: List[ConstraintViolation] = []
-            cluster = clusters_by_id.get(proposal.cluster_id)
+    def register_inventories(self, inventories: List[SupplyInventory]) -> None:
+        self._inventories = inventories
 
-            self._check_capacity(proposal, crews_by_id, stock_available, violations)
-            self._check_access(proposal, violations)
-            self._check_medical_priority(proposal, cluster, proposals, clusters_by_id, violations)
+    # -- main pipeline -----------------------------------------------------
 
-            fairness_note = self._check_fairness(proposal, cluster, zone_counts, violations)
+    async def ingest_reports(self, reports: List[RawReport]) -> None:
+        """Add reports to the pool without running a full cycle — lets the
+        API batch several arrivals before paying for a replan."""
+        self._reports.extend(reports)
+        logger.info("reports_ingested", extra={"count": len(reports), "pool_size": len(self._reports)})
 
-            feasible = not any(v.severity == "block" for v in violations)
-            result = ConstraintCheckResult(
-                mission_id=proposal.mission_id,
-                feasible=feasible,
-                violations=violations,
-                fairness_note=fairness_note,
-            )
-            results.append(result)
+    async def run_cycle(self) -> List[dict]:
+        """
+        Full pipeline pass. Returns commander-facing mission cards:
+        proposal + its constraint verdict, sorted by priority.
+        """
+        self._clusters = await self.evidence_agent.run(self._reports)
+        clusters_by_id = {c.cluster_id: c for c in self._clusters}
 
-            self._log_decision(
-                "constraint_checked",
-                mission_id=str(proposal.mission_id),
-                feasible=feasible,
-                violation_codes=[v.code for v in violations],
-            )
+        proposals = await self.planning_agent.run(self._clusters, self._crews, self._inventories)
+        self._proposals = {p.mission_id: p for p in proposals}
 
-        return results
+        crews_by_id = {c.crew_id: c for c in self._crews}
+        checks = await self.constraint_agent.run(proposals, clusters_by_id, crews_by_id, self._inventories)
+        self._checks = {c.mission_id: c for c in checks}
 
-    # -- individual checks ------------------------------------------------
+        return self._commander_view()
 
-    def _check_capacity(
-        self,
-        proposal: MissionProposal,
-        crews_by_id: Dict[str, Crew],
-        stock_available: Dict[str, int],
-        violations: List[ConstraintViolation],
-    ) -> None:
-        if proposal.crew_id is None:
-            violations.append(ConstraintViolation(
-                code="NO_CREW",
-                message="No crew assigned — capacity exhausted this cycle.",
-                severity="block",
-            ))
-            return
+    async def trigger_replan(self, reason: str) -> List[dict]:
+        """
+        Re-run planning + constraint checks against current geo/crew/supply
+        state without re-clustering evidence (evidence doesn't change just
+        because a road closed). Use ingest_reports + run_cycle instead when
+        new evidence is the trigger.
+        """
+        logger.info("replan_triggered", extra={"reason": reason})
+        proposals = await self.planning_agent.run(self._clusters, self._crews, self._inventories)
+        self._proposals = {p.mission_id: p for p in proposals}
 
-        crew = crews_by_id.get(proposal.crew_id)
-        if crew is None or not crew.available:
-            violations.append(ConstraintViolation(
-                code="CREW_UNAVAILABLE",
-                message=f"Assigned crew {proposal.crew_id} is not currently available.",
-                severity="block",
-            ))
+        clusters_by_id = {c.cluster_id: c for c in self._clusters}
+        crews_by_id = {c.crew_id: c for c in self._crews}
+        checks = await self.constraint_agent.run(proposals, clusters_by_id, crews_by_id, self._inventories)
+        self._checks = {c.mission_id: c for c in checks}
 
-        for item, qty in proposal.supplies.items():
-            if stock_available.get(item, 0) < 0:
-                violations.append(ConstraintViolation(
-                    code="SUPPLY_OVERDRAWN",
-                    message=f"Requested {qty} {item} exceeds remaining stock.",
-                    severity="block",
-                ))
+        return self._commander_view()
 
-    def _check_access(self, proposal: MissionProposal, violations: List[ConstraintViolation]) -> None:
-        # Route feasibility is re-checked here (not trusted from planning
-        # time) since geo state may have changed between planning and now.
-        route_id = proposal.route_id
-        if route_id is None:
-            violations.append(ConstraintViolation(
-                code="NO_ROUTE",
-                message="No route resolved for this mission.",
-                severity="warn",
-            ))
+    # -- human-in-the-loop --------------------------------------------------
 
-    def _check_medical_priority(
-        self,
-        proposal: MissionProposal,
-        cluster: EvidenceCluster,
-        all_proposals: List[MissionProposal],
-        clusters_by_id: Dict[UUID, EvidenceCluster],
-        violations: List[ConstraintViolation],
-    ) -> None:
-        if cluster is None or cluster.need_type != NeedType.MEDICAL:
-            return
-        # A medical-need mission left unassigned while lower-priority,
-        # non-medical missions got crews is a hard fairness/priority bug.
-        if proposal.crew_id is not None:
-            return
-        outranked_by_lower_priority = any(
-            p.crew_id is not None
-            and clusters_by_id.get(p.cluster_id)
-            and clusters_by_id[p.cluster_id].need_type != NeedType.MEDICAL
-            and p.priority_score < proposal.priority_score
-            for p in all_proposals
-        )
-        if outranked_by_lower_priority:
-            violations.append(ConstraintViolation(
-                code="MEDICAL_PRIORITY_VIOLATED",
-                message="Unassigned medical-need mission was outranked by a lower-priority, non-medical mission.",
-                severity="block",
-            ))
-
-    def _check_fairness(
-        self,
-        proposal: MissionProposal,
-        cluster: EvidenceCluster,
-        zone_counts: Dict[str, int],
-        violations: List[ConstraintViolation],
-    ) -> str:
-        if cluster is None or proposal.crew_id is None:
+    async def handle_commander_decision(self, decision: CommanderDecision) -> Optional[MissionProposal]:
+        proposal = self._proposals.get(decision.mission_id)
+        if proposal is None:
+            logger.warning("decision_for_unknown_mission", extra={"mission_id": str(decision.mission_id)})
             return None
-        zone_key = self._zone_key(cluster)
-        total_assigned = sum(zone_counts.values()) or 1
-        share = zone_counts.get(zone_key, 0) / total_assigned
-        if share > MAX_SHARE_PER_ZONE and len(zone_counts) > 1:
-            violations.append(ConstraintViolation(
-                code="ZONE_IMBALANCE",
-                message=f"Zone {zone_key} is receiving {share:.0%} of assigned missions this cycle.",
-                severity="warn",
-            ))
-            return f"Zone {zone_key} over-represented ({share:.0%} of assigned missions)."
-        return None
 
-    # -- helpers ------------------------------------------------------------
+        proposal.status = decision.decision
+        if decision.decision == MissionStatus.MODIFIED and decision.modifications:
+            for field, value in decision.modifications.items():
+                if hasattr(proposal, field):
+                    setattr(proposal, field, value)
 
-    def _total_stock(self, inventories: List[SupplyInventory]) -> Dict[str, int]:
-        totals: Dict[str, int] = defaultdict(int)
-        for inv in inventories:
-            for item, qty in inv.items.items():
-                totals[item] += qty
-        return totals
+        logger.info(
+            "commander_decision_applied",
+            extra={
+                "mission_id": str(proposal.mission_id),
+                "decision": decision.decision.value,
+                "decided_by": decision.decided_by,
+            },
+        )
 
-    def _zone_key(self, cluster: EvidenceCluster) -> str:
-        # Coarse ~1km buckets — good enough for a fairness heuristic, not
-        # for routing.
-        return f"{round(cluster.lat, 2)}_{round(cluster.lon, 2)}"
+        # Approving a mission consumes a crew — mark unavailable so the
+        # next planning cycle doesn't double-book it.
+        if decision.decision == MissionStatus.APPROVED and proposal.crew_id:
+            for crew in self._crews:
+                if crew.crew_id == proposal.crew_id:
+                    crew.available = False
 
-    def _zone_distribution(
-        self, proposals: List[MissionProposal], clusters_by_id: Dict[UUID, EvidenceCluster]
-    ) -> Dict[str, int]:
-        counts: Dict[str, int] = defaultdict(int)
-        for p in proposals:
-            if p.crew_id is None:
-                continue
-            cluster = clusters_by_id.get(p.cluster_id)
-            if cluster:
-                counts[self._zone_key(cluster)] += 1
-        return counts
+        return proposal
+
+    # -- offline reconciliation ----------------------------------------------
+
+    async def reconcile_offline_batch(self, queued_reports: List[RawReport]) -> List[dict]:
+        """
+        Apply a batch of reports a field team queued while disconnected,
+        preserving their original received_at timestamps (already set on
+        each RawReport client-side) so evidence clustering and history
+        stay accurate, then replan once for the whole batch.
+        """
+        logger.info("offline_batch_reconciling", extra={"count": len(queued_reports)})
+        await self.ingest_reports(queued_reports)
+        return await self.run_cycle()
+
+    # -- view helpers -----------------------------------------------------
+
+    def _commander_view(self) -> List[dict]:
+        cards = []
+        for mission_id, proposal in self._proposals.items():
+            check = self._checks.get(mission_id)
+            cards.append({
+                "proposal": proposal,
+                "check": check,
+            })
+        cards.sort(key=lambda c: c["proposal"].priority_score, reverse=True)
+        return cards
