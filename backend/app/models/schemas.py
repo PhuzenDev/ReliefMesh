@@ -9,12 +9,16 @@ before the DB/API layers exist.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Set
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +64,7 @@ class RawReport(BaseModel):
     report_id: UUID = Field(default_factory=uuid4)
     source: SourceType
     source_reliability_hint: Optional[float] = None  # calibration / field-team trust, 0-1
-    received_at: datetime = Field(default_factory=datetime.utcnow)
+    received_at: datetime = Field(default_factory=_utcnow)
     lat: float
     lon: float
     text: Optional[str] = None
@@ -170,4 +174,4 @@ class CommanderDecision(BaseModel):
     decision: MissionStatus  # APPROVED | MODIFIED | REJECTED
     modifications: Optional[Dict] = None
     decided_by: str
-    decided_at: datetime = Field(default_factory=datetime.utcnow)
+    decided_at: datetime = Field(default_factory=_utcnow)
