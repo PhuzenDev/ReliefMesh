@@ -1,5 +1,5 @@
 [
-  {"shelter_id": "riverside_school", "lat": 37.7770, "lon": -122.4110, "capacity": 150, "occupied": 40},
-  {"shelter_id": "east_community_center", "lat": 37.7760, "lon": -122.4060, "capacity": 100, "occupied": 85},
-  {"shelter_id": "south_gym", "lat": 37.7650, "lon": -122.4170, "capacity": 80, "occupied": 10}
+  {"shelter_id": "riverside_school", "lat": 12.6121, "lon": 80.1947, "capacity": 150, "occupied": 40},
+  {"shelter_id": "east_community_center", "lat": 12.6111, "lon": 80.1997, "capacity": 100, "occupied": 85},
+  {"shelter_id": "south_gym", "lat": 12.6001, "lon": 80.1887, "capacity": 80, "occupied": 10}
 ]

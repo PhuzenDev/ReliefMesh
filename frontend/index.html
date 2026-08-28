@@ -1,183 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReliefMesh — Commander Console</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-
-<div class="topo"></div>
-
-<!-- ============ TOP BAR ============ -->
-<header id="topbar">
-  <div class="brand"><span class="dot" id="conn-dot"></span> ReliefMesh <span class="mono sub">COMMANDER CONSOLE</span></div>
-
-  <div class="topbar-mid">
-    <span class="mono stat"><span class="label">reports</span> <span id="stat-reports">0</span></span>
-    <span class="mono stat"><span class="label">missions</span> <span id="stat-missions">0</span></span>
-    <span class="mono stat"><span class="label">clock</span> <span id="clock">--:--:--Z</span></span>
-  </div>
-
-  <div class="topbar-right">
-    <span class="mono conn-label" id="conn-label">connecting…</span>
-    <button class="btn btn-ghost mono" id="btn-settings" title="API connection settings">⚙ API</button>
-  </div>
-</header>
-
-<!-- ============ SETTINGS MODAL ============ -->
-<div id="settings-modal" class="modal-backdrop hidden">
-  <div class="modal glass">
-    <h3>Connection settings</h3>
-    <p class="muted">Point the console at your ReliefMesh backend. Saved to this browser.</p>
-    <label class="mono">API_BASE_URL</label>
-    <input id="input-api-base" class="mono" type="text" placeholder="http://localhost:8000">
-    <label class="mono">DECIDED_BY (your call sign)</label>
-    <input id="input-decided-by" class="mono" type="text" placeholder="commander-1">
-    <div class="modal-actions">
-      <button class="btn btn-ghost" id="btn-settings-cancel">Cancel</button>
-      <button class="btn btn-primary" id="btn-settings-save">Save &amp; reconnect</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============ MAIN LAYOUT ============ -->
-<main id="layout">
-
-  <!-- ---- LEFT: MISSION BOARD ---- -->
-  <section id="mission-panel" class="panel">
-    <div class="panel-head">
-      <h2>Mission board</h2>
-      <div class="panel-actions">
-        <button class="btn btn-ghost mono" id="btn-refresh-missions">↻ refresh</button>
-        <button class="btn btn-ghost mono" id="btn-replan">⇌ replan</button>
-        <button class="btn btn-primary mono" id="btn-run-cycle">▶ run cycle</button>
-      </div>
-    </div>
-    <div id="mission-list" class="mission-list">
-      <div class="empty-state">No missions yet. Submit field reports, then run a cycle.</div>
-    </div>
-  </section>
-
-  <!-- ---- RIGHT: SIDEBAR ---- -->
-  <aside id="sidebar">
-
-    <!-- New field report -->
-    <div class="panel" id="report-panel">
-      <div class="panel-head"><h2>New field report</h2></div>
-      <form id="report-form">
-        <div class="form-row">
-          <div class="field">
-            <label class="mono">source</label>
-            <select id="f-source">
-              <option value="call">call</option>
-              <option value="sms">sms</option>
-              <option value="field_team">field_team</option>
-              <option value="sensor">sensor</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="mono">need_type</label>
-            <select id="f-need">
-              <option value="medical">medical</option>
-              <option value="rescue">rescue</option>
-              <option value="food_water">food_water</option>
-              <option value="shelter">shelter</option>
-              <option value="evacuation">evacuation</option>
-              <option value="unknown" selected>unknown</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label class="mono">lat</label>
-            <input id="f-lat" class="mono" type="number" step="0.0001" placeholder="34.0215" required>
-          </div>
-          <div class="field">
-            <label class="mono">lon</label>
-            <input id="f-lon" class="mono" type="number" step="0.0001" placeholder="-118.2910" required>
-          </div>
-          <button type="button" class="btn btn-ghost mono" id="btn-use-location" title="Use device location">⌖</button>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label class="mono">people_affected</label>
-            <input id="f-people" class="mono" type="number" min="0" placeholder="optional">
-          </div>
-          <div class="field">
-            <label class="mono">reliability_hint (0–1)</label>
-            <input id="f-reliability" class="mono" type="number" min="0" max="1" step="0.05" placeholder="optional">
-          </div>
-        </div>
-        <div class="field">
-          <label class="mono">notes</label>
-          <textarea id="f-text" rows="2" placeholder="What was reported…"></textarea>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary mono" id="btn-submit-report">Submit report</button>
-        </div>
-      </form>
-    </div>
-
-    <!-- Offline queue -->
-    <div class="panel" id="offline-panel">
-      <div class="panel-head">
-        <h2>Offline queue <span class="count-pill" id="queue-count">0</span></h2>
-        <button class="btn btn-ghost mono" id="btn-sync-queue">⇧ sync now</button>
-      </div>
-      <div id="queue-list" class="queue-list">
-        <div class="empty-state small">Nothing queued.</div>
-      </div>
-    </div>
-
-    <!-- Geo state -->
-    <div class="panel" id="geo-panel">
-      <div class="panel-head">
-        <h2>Roads</h2>
-        <button class="btn btn-ghost mono" id="btn-refresh-geo">↻</button>
-      </div>
-      <div id="road-list" class="road-list">
-        <div class="empty-state small">No road data loaded.</div>
-      </div>
-    </div>
-
-    <!-- Shelters -->
-    <div class="panel" id="shelter-panel">
-      <div class="panel-head"><h2>Shelters</h2></div>
-      <div id="shelter-list" class="shelter-list">
-        <div class="empty-state small">No shelter data loaded.</div>
-      </div>
-    </div>
-
-    <!-- Activity log -->
-    <div class="panel" id="log-panel">
-      <div class="panel-head"><h2>Activity log</h2></div>
-      <div id="activity-log" class="activity-log"></div>
-    </div>
-
-  </aside>
-</main>
-
-<!-- ---- MODIFY MISSION MODAL ---- -->
-<div id="modify-modal" class="modal-backdrop hidden">
-  <div class="modal glass">
-    <h3>Modify mission</h3>
-    <label class="mono">crew_id</label>
-    <input id="mod-crew" class="mono" type="text">
-    <label class="mono">route_id</label>
-    <input id="mod-route" class="mono" type="text">
-    <label class="mono">supplies (JSON object)</label>
-    <textarea id="mod-supplies" class="mono" rows="3">{}</textarea>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" id="btn-modify-cancel">Cancel</button>
-      <button class="btn btn-primary" id="btn-modify-save">Save modification</button>
-    </div>
-  </div>
-</div>
-
-<div id="toast-root"></div>
-
-<script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ReliefMesh — Commander Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css"
+    />
+  </head>
+  <body class="bg-ink-900">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

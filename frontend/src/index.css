@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-900 text-fog-100 font-body antialiased;
+    background-image: radial-gradient(circle at 1px 1px, rgba(140, 160, 172, 0.08) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  ::selection {
+    @apply bg-signal-cyan/30 text-fog-100;
+  }
+  :focus-visible {
+    outline: 2px solid #4fb4c7;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    @apply font-mono text-[13px] font-medium uppercase tracking-[0.16em] text-fog-300;
+  }
+
+  /* Triage tag: status-coded mission card with a perforated stub divider,
+     echoing physical field triage tags used in real disaster response. */
+  .triage-tag {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .perforation {
+    background-image: linear-gradient(
+      to right,
+      transparent 0,
+      transparent 4px,
+      rgba(140, 160, 172, 0.35) 4px,
+      rgba(140, 160, 172, 0.35) 8px
+    );
+    background-size: 10px 1px;
+    background-repeat: repeat-x;
+    background-position: left center;
+    height: 1px;
+  }
+}
+
+/* Leaflet dark-theme overrides so map chrome matches the console. */
+.leaflet-container {
+  background: #10151a;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+/* Standard OSM tiles are light; invert+rotate hue to fake a dark basemap
+   without needing a paid/keyed dark tile provider. Only applies to the
+   tile image layer — markers, popups and vector overlays sit on separate
+   panes and are unaffected. */
+.dark-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) saturate(0.6);
+}
+.leaflet-popup-content-wrapper {
+  background: #171e24;
+  color: #e7edf0;
+  border: 1px solid #2a363f;
+  border-radius: 6px;
+}
+.leaflet-popup-tip {
+  background: #171e24;
+  border: 1px solid #2a363f;
+}
+.leaflet-popup-content {
+  margin: 10px 12px;
+}
+.leaflet-control-zoom a {
+  background: #171e24 !important;
+  color: #b7c6cd !important;
+  border-color: #2a363f !important;
+}
+.leaflet-control-zoom a:hover {
+  background: #1e2830 !important;
+  color: #e7edf0 !important;
+}
+.leaflet-control-attribution {
+  background: rgba(16, 21, 26, 0.75) !important;
+  color: #5e7180 !important;
+}
+.leaflet-control-attribution a {
+  color: #8ca0ac !important;
+}

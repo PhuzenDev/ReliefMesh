@@ -14,7 +14,7 @@ here, distinguished by `source`. `client_event_id` is the idempotency
 key that makes offline sync safe to replay.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text,
@@ -24,8 +24,21 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class Base(DeclarativeBase):
     pass
+
+
+# Every datetime the app generates (see app/models/schemas.py::_utcnow) is
+# tz-aware UTC. These columns used to be plain DateTime (i.e. Postgres
+# TIMESTAMP WITHOUT TIME ZONE), which made asyncpg reject any tz-aware
+# value on insert. Use this everywhere instead of bare DateTime — see
+# migrations/versions/0002_timezone_aware_datetimes.py for the matching
+# column-type migration.
+TZDateTime = DateTime(timezone=True)
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +51,7 @@ class ReportRow(Base):
     report_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source = Column(String, nullable=False)
     source_reliability_hint = Column(Float, nullable=True)
-    received_at = Column(DateTime, nullable=False)
+    received_at = Column(TZDateTime, nullable=False)
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     text = Column(Text, nullable=True)
@@ -63,8 +76,8 @@ class EvidenceClusterRow(Base):
     confidence = Column(Float, nullable=False)
     contradictory = Column(Boolean, nullable=False, default=False)
     contradiction_notes = Column(Text, nullable=True)
-    first_seen = Column(DateTime, nullable=False)
-    last_seen = Column(DateTime, nullable=False)
+    first_seen = Column(TZDateTime, nullable=False)
+    last_seen = Column(TZDateTime, nullable=False)
 
     # NOT currently populated — app/models/schemas.py's EvidenceCluster has
     # no vulnerable_population / location_precision fields yet, so the
@@ -98,7 +111,7 @@ class MissionProposalRow(Base):
     assumptions = Column(JSONB, nullable=False, default=list)
     status = Column(String, nullable=False, default="proposed")
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(TZDateTime, nullable=False, default=_utcnow)
 
 
 class ConstraintCheckResultRow(Base):
@@ -111,12 +124,16 @@ class ConstraintCheckResultRow(Base):
     feasible = Column(Boolean, nullable=False)
     violations = Column(JSONB, nullable=False, default=list)   # [{code, message, severity}, ...]
     fairness_note = Column(Text, nullable=True)
+<<<<<<< HEAD
     # Groq-generated plain-language rollup of `violations`, when present —
     # see app/agents/constraint_agent.py and models/schemas.py's matching
     # field. NULL whenever Groq wasn't configured or there were no
     # violations to explain.
     llm_explanation = Column(Text, nullable=True)
     checked_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+=======
+    checked_at = Column(TZDateTime, nullable=False, default=_utcnow)
+>>>>>>> ef1caa9 (frontend)
 
 
 class CommanderDecisionRow(Base):
@@ -127,7 +144,7 @@ class CommanderDecisionRow(Base):
     decision = Column(String, nullable=False)          # approved | modified | rejected
     modifications = Column(JSONB, nullable=True)
     decided_by = Column(String, nullable=False)
-    decided_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    decided_at = Column(TZDateTime, nullable=False, default=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -163,5 +180,5 @@ class Event(Base):
     context = Column(JSONB, nullable=False, default=dict)   # remaining _log_decision kwargs / sync payload
     level = Column(String, nullable=True)            # log level name, agent_log rows only
 
-    occurred_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    recorded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    occurred_at = Column(TZDateTime, nullable=False, default=_utcnow)
+    recorded_at = Column(TZDateTime, nullable=False, default=_utcnow)
